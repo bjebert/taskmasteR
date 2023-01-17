@@ -45,3 +45,6 @@ vignettes/*.pdf
 *.woff
 *.woff2
 
+# User-specific RDS/CSV files
+*.rds
+*.csv
