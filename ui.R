@@ -22,7 +22,7 @@ ui <- fluidPage(
              h4 {
               padding-top: 7px;
               font-size: 32px;
-              animation: color-change 12s infinite;
+              animation: color-change 8s infinite;
              }
             
             @keyframes color-change {
@@ -49,7 +49,9 @@ ui <- fluidPage(
         width = "600px", top = "150px",
         wellPanel(
             style = "background-color: #F5FFFA",
-            htmlOutput("tasks")
+            htmlOutput("taskUi"),
+            br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(),
+            br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br(), br()
         )
     ),
     
@@ -65,10 +67,13 @@ ui <- fluidPage(
             fluidRow(
                 style = "padding-left: 10px",
                 textInput("taskName", label = "Description", value = "", width = "85%"),
-                checkboxGroupInput("taskWeekly", label = "Weekly", choiceNames = c("M", "T", "W", "T", "F", "S", "S"), choiceValues = 1:7, inline = T),
                 timeInput("taskTimeStart", seconds = FALSE, label = "Time Restriction (Start)"),
                 timeInput("taskTimeEnd", seconds = FALSE, label = "Time Restriction (End)", value = "23:59:59"),
                 selectInput("taskPrerequisites", label = "Prerequisites", choices = c(), multiple = TRUE, width = "85%"),
+                checkboxGroupInput("taskRecurrence", label = "Recurrence", choiceNames = c("M", "T", "W", "T", "F", "S", "S"), choiceValues = 1:7, inline = T),
+                numericInputIcon("taskLikelihood", label = "Likelihood", value = 100, 
+                                 min = 0, max = 100,
+                                 width = "30%", icon = list(NULL, icon("percent")), size = "sm"),
                 numericInput("taskRepetitions", label = "Repetitions", value = 1, width = "25%"),
                 actionButton("createTask", label = "Create Task")
             )
