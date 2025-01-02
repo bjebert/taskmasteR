@@ -1,0 +1,77 @@
+body {
+    background: linear-gradient(to right, #107808, #50A450);
+}
+
+h1 {
+    color: #F5FFFA;
+    font-size: 36px;
+    font-weight: 700;
+}
+
+h2 {
+    color: #F5FFFA;
+    font-size: 32px;
+    font-weight: 700;
+}
+
+h3 {
+    color: #F5FFFA;
+    font-size: 24px;
+}
+
+h4 {
+    padding-top: 7px;
+    font-size: 32px;
+    animation: color-change 8s infinite;
+}
+
+h5 {
+    font-size: 42px;
+    font-weight: bold;
+    font-family: Courier New;
+}
+
+.rightAlign {
+    float: right;
+}
+
+
+p {
+    font-size: 18px;
+}
+
+.checkbox {
+    accent-color: lightgray;
+}
+
+.well {
+    background-color: #F5FFFA;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+#getTask {
+    background-color: #F5FFFA;
+    border: 0px;
+}
+
+#cancelTask {
+    padding: 18px 0px;
+    font-size: 18px;
+}
+
+#toggleTaskTimer {
+    background-color: transparent; /* Make background transparent */
+    border: none; /* Remove border */
+    padding: 2; /* Remove padding */
+    margin: 2; /* Remove margin */
+    font-size: 22px; /* Adjust the size of the icon */
+    cursor: pointer; /* Change cursor to pointer for clickability */
+}
+
+@keyframes color-change {
+    0% { color: #003300; }
+    25% { color: #00FF00; }
+    50% { color: #003300; }
+    75% { color: #00FF00; }
+    100% { color: #003300; }
+}
