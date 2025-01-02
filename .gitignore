@@ -48,3 +48,5 @@ vignettes/*.pdf
 # User-specific RDS/CSV files
 *.rds
 *.csv
+
+promptPersonal

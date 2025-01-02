@@ -10,31 +10,43 @@ library(profvis)
 read_tasks <- function(f) {
     if(file.exists(f)) {
         tasks_tmp <- fread(f)
-        return(tasks_tmp)
     } else {
         tasks_tmp <- fread("habits.csv")
         tasks_tmp[, IsVisible := FALSE]
         tasks_tmp[, IsComplete := FALSE]
         tasks_tmp[, IsActive := FALSE]
-        return(tasks_tmp)
     }
+    
+    if("Completions" %in% colnames(tasks_tmp)) {  # Legacy interface
+        tasks_tmp[, Completions := NULL]
+    }
+    
+    return(tasks_tmp)
 }
 
 
 rv <- reactiveValues(task_mode = FALSE,
                      task_timer_active = FALSE,
+                     task_start_time = NULL,
                      task_duration_seconds = 0,
+                     last_duration = NULL,
                      edit_mode = FALSE,
                      edit_id = NA,
                      last_beep = Sys.time())
 
 rv[["tasks"]] <- read_tasks(sprintf("history/tasks_%s.csv", gsub("-", "_", Sys.Date())))
+statistics_dt <- fread("statistics.csv")
 
 chk_observers <- list()
 edit_observers <- list()
 del_observers <- list()
 
+gpt_agent_motivation <- ellmer::chat_openai(model = "gpt-4o-mini", system_prompt = readLines("promptMotivation"))
+gpt_agent_enhance <- ellmer::chat_openai(model = "gpt-4o-mini", system_prompt = readLines("promptEnhance"))
+
 # Helpers -----------------------------------------------------------------
+
+breaks <- function(n) tagList(lapply(1:n, function(x) br()))
 
 load_habits <- function() {
     tasks_tmp <- copy(rv[["tasks"]])
@@ -134,33 +146,108 @@ task_status_ui <- function() {
         exit_task_mode()
     }
     
+    task_statistics <- get_task_statistics(active_task_row[["Name"]])
+    
     status_ui <- fluidRow(
-        absolutePanel(top = "10px", left = "55px", h5(get_formatted_task_time())),
+        absolutePanel(top = "10px", left = "55px", h5(textOutput("formattedTaskTime"))),
         absolutePanel(top = "24px", left = "10px", actionButton("toggleTaskTimer", label = NULL, icon = icon(ifelse(rv[["task_timer_active"]], "pause", "play")))),
-        absolutePanel(top = "10px", left = "440px", actionButton("cancelTask", label = "Cancel Task", width = "150px", icon = icon("cancel"))),
+        absolutePanel(top = "10px", left = "500px", actionButton("cancelTask", label = "Cancel", width = "90px", icon = icon("cancel"))),
+        div(class = "task-statistics",
+            absolutePanel(top = "10px", left = "220px", sprintf("Completions: %s", task_statistics[["completions"]])),
+            absolutePanel(top = "25px", left = "220px", sprintf("Total Time: %s", format_duration(task_statistics[["total_duration"]]))),
+            absolutePanel(top = "40px", left = "220px", sprintf("Average Time: %s", format_duration(task_statistics[["avg_duration"]]))),
+            absolutePanel(top = "55px", left = "220px", sprintf("Fastest: %s", format_duration(task_statistics[["fastest_completion"]]))),
+            absolutePanel(top = "10px", left = "330px", sprintf("Incomplete: %s", task_statistics[["failures"]])),
+            absolutePanel(top = "25px", left = "330px", sprintf("Last Completion: %s", task_statistics[["last_completion"]])),
+        )
     )
     
     return(status_ui)
 }
 
 
-get_formatted_task_time <- function() {
+format_duration <- function(duration) {
+    if(is.null(duration) || is.character(duration)) {
+        return("")
+    }
+    
+    if(duration < 60) {
+        return(sprintf("%ss", round(duration)))
+    } else if(duration < 3600) {
+        minutes <- duration %/% 60
+        seconds <- round(duration %% 60)
+        
+        return(sprintf("%sm %ss", minutes, seconds))
+    } else {
+        hours <- duration %/% 3600
+        minutes <- round((duration %% 3600) / 60)
+        
+        return(sprintf("%sh %sm", hours, minutes))
+    }
+}
+
+
+get_task_time_seconds <- function() {
     if(rv[["task_mode"]]) {
         rv$task_timer()
+        task_secs <- rv[["task_duration_seconds"]]
         
-        isolate({
-            if(rv[["task_timer_active"]]) {
-                rv[["task_duration_seconds"]] <<- rv[["task_duration_seconds"]] + 1
-            }
-        })
-        
-        formatted_time <- ifelse(rv[["task_duration_seconds"]] >= 3600,
-                                 format(.POSIXct(rv[["task_duration_seconds"]], tz = "UTC"), "%H:%M:%S"),
-                                 format(.POSIXct(rv[["task_duration_seconds"]], tz = "UTC"), "%M:%S"))
+        if(!is.null(rv[["task_start_time"]])) {
+            task_secs <- task_secs + difftime(Sys.time(), rv[["task_start_time"]], units = "secs")
+        }
+        return(as.numeric(task_secs))
+    } else {
+        return(NULL)
+    }
+}
+
+
+get_formatted_task_time <- function() {
+    task_secs <- get_task_time_seconds()
+    
+    if(!is.null(task_secs)) {
+        formatted_time <- ifelse(task_secs >= 3600,
+                                 format(.POSIXct(task_secs, tz = "UTC"), "%H:%M:%S"),
+                                 format(.POSIXct(task_secs, tz = "UTC"), "%M:%S"))
         
         return(formatted_time)
     }
+}
+
+
+get_task_statistics <- function(task_name) {
+    if(is.null(task_name) || !length(task_name)) {
+        return(NULL)
+    }
     
+    task_stats <- statistics_dt[Name == task_name]
+    
+    if(nrow(task_stats) == 0) {
+        return(list(completions = 0,
+                    failures = 0,
+                    total_duration = "",
+                    avg_duration = "",
+                    fastest_completion = "",
+                    last_completion = ""))
+    }
+    
+    task_success <- task_stats[!is.na(Time)]
+    
+    if(nrow(task_success) == 0) {
+        return(list(completions = 0,
+                    failures = nrow(task_stats[is.na(Time)]),
+                    total_duration = "",
+                    avg_duration = "",
+                    fastest_completion = "",
+                    last_completion = ""))
+    }
+    
+    return(list(completions = nrow(task_success),
+                failures = nrow(task_stats[is.na(Time)]),
+                total_duration = sum(task_success[["Duration"]]),
+                avg_duration = sum(task_success[["Duration"]]) / nrow(task_success),
+                fastest_completion = min(task_success[["Duration"]]),
+                last_completion = as.Date(max(task_success[["Time"]]))))
 }
 
 
@@ -178,7 +265,7 @@ create_task <- function(task_name, task_time_start, task_time_end, task_prerequi
     
     task_dt <- data.table(Name = task_name, TimeStart = start_hhmm, TimeEnd = end_hhmm,
                           Prerequisites = task_prerequisites, Recurrence = paste(task_recurrence, collapse = ";"), 
-                          Likelihood = task_likelihood, Completions = NA, IsComplete = FALSE, IsActive = FALSE,
+                          Likelihood = task_likelihood, IsComplete = FALSE, IsActive = FALSE,
                           IsVisible = TRUE)
     
     if(rv[["edit_mode"]]) {
@@ -190,14 +277,25 @@ create_task <- function(task_name, task_time_start, task_time_end, task_prerequi
 
 
 toggle_check_task <- function(i, chk_val) {
-    # Beeping is crashing R
-    # if(chk_val && difftime(Sys.time(), rv[["last_beep"]], units = "secs") > 0.2) {
-    #     audio::play(audio::load.wave("C:/Users/blake/Documents/R/win-library/4.0/beepr/sounds/microwave_ping_mono.wav"))
-    #     rv[["last_beep"]] <<- Sys.time()
-    # }
+    if(chk_val && difftime(Sys.time(), rv[["last_beep"]], units = "secs") > 0.2) {
+        runjs("var audio = new Audio('ding.mp3'); audio.volume = 0.75; audio.play();")
+    }
     
     tmp <- copy(rv[["tasks"]])
     idx <- tmp[IsVisible == T, which = T][i]
+    
+    # Update statistics if completed task was the active task in task mode
+    if(rv[["task_mode"]] && tmp[idx][["IsActive"]]) {
+        completion_dt <- data.table(Name = tmp[["Name"]][idx],
+                                    Time = Sys.time(),
+                                    Duration = get_task_time_seconds())
+        
+        if(nrow(statistics_dt) == 0 || nrow(statistics_dt[!is.na(Name)]) == 0) {
+            statistics_dt <<- copy(completion_dt)
+        } else {
+            statistics_dt <<- rbind(statistics_dt, completion_dt)
+        }
+    }
     
     tmp[idx, IsComplete := chk_val]
     tmp[idx, IsActive := FALSE]
@@ -280,6 +378,7 @@ cancel_edit <- function() {
 enter_task_mode <- function() {
     rv$task_mode <- TRUE
     rv$task_timer_active <- TRUE
+    rv$task_start_time <- Sys.time()
     rv$task_duration_seconds <- 0
     rv$task_timer <- reactiveTimer(1000)
     
@@ -291,6 +390,8 @@ enter_task_mode <- function() {
 exit_task_mode <- function() {
     rv$task_mode <- FALSE
     rv$task_timer_active <- FALSE
+    rv$task_start_time <- NULL
+    rv$last_duration <- rv$task_duration_seconds
     rv$task_duration_seconds <- 0
     rv$task_timer <- NULL
     
@@ -368,6 +469,10 @@ server <- function(input, output, session) {
     
     output$taskStatusUi <- renderUI(task_status_ui())
     
+    output$formattedTaskTime <- renderText({
+        get_formatted_task_time()
+    })
+    
     observeEvent(rv[["tasks"]], {
         if(nrow(rv[["tasks"]]) == 0) {
             updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites", choices = "")
@@ -418,13 +523,18 @@ server <- function(input, output, session) {
     
     observeEvent(input$toggleTaskTimer, {
         rv[["task_timer_active"]] <- !rv[["task_timer_active"]]
-        print(rv[["task_timer_active"]])
         
-        isolate({
-            timer_icon <- ifelse(rv[["task_timer_active"]], "pause", "play")
-            print('updating_ttt')
-            updateActionButton(session, "toggleTaskTimer", icon = icon(timer_icon))
-        })
+        if(rv[["task_timer_active"]]) {
+            # Timer started
+            rv$task_start_time <- Sys.time()
+            updateActionButton(session, "toggleTaskTimer", icon = icon("pause"))
+        } else {
+            # Timer paused
+            rv[["task_duration_seconds"]] <- rv[["task_duration_seconds"]] + floor(difftime(Sys.time(), rv$task_start_time, units = "secs"))
+            
+            rv$task_start_time <- NULL
+            updateActionButton(session, "toggleTaskTimer", icon = icon("play"))
+        }
     })
     
     # Right sidebar -----------------------------------------------------------
@@ -457,5 +567,110 @@ server <- function(input, output, session) {
         if(!is.null(tmp)) {
             rv[["tasks"]] <<- copy(tmp)
         }
+    })
+    
+    
+    # GPT Enhance -------------------------------------------------------------
+    
+    observeEvent(input$gptEnhance, {
+        visible_tasks <- rv$tasks[IsVisible == TRUE]
+        
+        chat_message <- sprintf("Current time is %s.  The user's tasks today are: %s.",
+                                format(Sys.time(), "%A %H:%M:%S"),
+                                paste(visible_tasks[["Name"]], collapse = "; "))
+        
+        response <- gpt_agent_enhance$chat(chat_message, echo = "none")
+        
+        tryCatch({
+            new_tasks <- strsplit(response, "; ")[[1]]
+            new_task_dt <- rbindlist(lapply(new_tasks, function(task) {
+                start_hhmm <- "00:00"
+                end_hhmm <- "23:59"
+                task_prerequisites <- NA
+                task_recurrence <- ""
+                task_likelihood <- 100
+                
+                if(grepl("\\(.*\\)", task)) {
+                    ts <- strsplit(task, " \\(")[[1]]
+                    task <- ts[1]
+                    times <- strsplit(gsub("\\)", "", ts[2]), "-")[[1]]
+                    start_hhmm <- times[1]
+                    end_hhmm <- times[2]
+                    
+                    if(start_hhmm == end_hhmm) {
+                        start_hhmm <- "00:00"
+                        end_hhmm <- "23:59"
+                    }
+                }
+                
+                return(data.table(Name = task, TimeStart = start_hhmm, TimeEnd = end_hhmm,
+                                  Prerequisites = task_prerequisites, Recurrence = paste(task_recurrence, collapse = ";"), 
+                                  Likelihood = task_likelihood, IsComplete = FALSE, IsActive = FALSE,
+                                  IsVisible = TRUE))
+            }))
+            
+            rv[["tasks"]] <- rbind(rv[["tasks"]], new_task_dt)
+        })
+    })
+    
+    
+    # GPT motivational panel ------------------------------------------------------
+    
+    output$gptWellPanel <- renderUI({
+        class <- if(rv[["task_mode"]]) "active-gpt-bg" else "inactive-gpt-bg"
+        
+        wellPanel(
+            class = class,
+            htmlOutput("gptOutput"),
+            breaks(2)
+        )
+    })
+    
+    # Dummy output for demonstration
+    output$gptOutput <- renderText({
+        if(!rv[["task_mode"]] || !input$isGptMotivational) {
+            return("")
+        }
+        
+        # Generate a GPT motivational output for the current task
+        current_task <- rv$tasks[IsActive == TRUE]
+        other_tasks <- paste(rv$tasks[IsActive == FALSE & IsVisible == TRUE & IsComplete == FALSE][["Name"]], collapse = "; ")
+        
+        visible_tasks <- rv$tasks[IsVisible == T]
+        
+        chat_message <- sprintf("Current time is %s.  The current task is: %s.  The user's other tasks today are: %s.  The user has completed %d/%d tasks today.",
+                                format(Sys.time(), "%A %H:%M:%S"),
+                                current_task[["Name"]],
+                                other_tasks,
+                                visible_tasks[, sum(IsComplete)],
+                                nrow(visible_tasks))
+        
+        response <- gpt_agent_motivation$chat(chat_message, echo = "none")
+        
+        return(response)
+    })
+    
+    # Write statistics on stop ------------------------------------------------
+    
+    onStop(function() {
+        if(isolate(rv[["task_mode"]])) {
+            current_task <- isolate(rv$tasks)[IsActive == TRUE]
+            if(nrow(current_task) > 0) {
+                # Add a "failed" completion for the current task
+                task_secs <- as.numeric(isolate(rv[["task_duration_seconds"]]) + difftime(Sys.time(), isolate(rv[["task_start_time"]]), units = "secs"))
+                
+                completion_dt <- data.table(Name = current_task[["Name"]],
+                                            Time = as.POSIXct(NA),
+                                            Duration = task_secs)
+                
+                if(nrow(statistics_dt) == 0) {
+                    statistics_dt <<- copy(completion_dt)
+                } else {
+                    statistics_dt <<- rbind(statistics_dt, completion_dt)
+                }
+            }
+        }
+        
+        fwrite(statistics_dt, "statistics.csv")
     })
 }

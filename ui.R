@@ -86,5 +86,20 @@ ui <- fluidPage(
     absolutePanel(
         top = "596px", left = "650px",
         fileInput("loadHistorical", label = "", width = "350px", buttonLabel = "Load Historical...")
+    ),
+    
+    absolutePanel(
+        top = "656px", left = "650px",
+        actionButton("gptEnhance", label = "Enhance", width = "114px", icon = icon("tornado")),
+    ),
+    
+    absolutePanel(
+        top = "696px", left = "650px",
+        absolutePanel(top = "0px", left = "0px", div(style = "color: white", checkboxInput(inputId = "isGptMotivational", value = TRUE, label = "Motivation")))
+    ),
+    
+    absolutePanel(
+        top = "736px", left = "650px", width = "350px",
+        uiOutput("gptWellPanel")
     )
 )

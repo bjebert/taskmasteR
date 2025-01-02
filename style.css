@@ -55,7 +55,7 @@ p {
 }
 
 #cancelTask {
-    padding: 18px 0px;
+    padding: 18px 2px;
     font-size: 18px;
 }
 
@@ -68,10 +68,23 @@ p {
     cursor: pointer; /* Change cursor to pointer for clickability */
 }
 
+.task-statistics {
+    font-size: 12px;
+    font-family: Arial;
+}
+
 @keyframes color-change {
     0% { color: #003300; }
     25% { color: #00FF00; }
     50% { color: #003300; }
     75% { color: #00FF00; }
     100% { color: #003300; }
+}
+
+.active-gpt-bg {
+    background-color: #F5FFFA !important;
+}
+
+.inactive-gpt-bg {
+    background-color: lightgrey !important;
 }
