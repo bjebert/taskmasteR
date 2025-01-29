@@ -88,3 +88,32 @@ p {
 .inactive-gpt-bg {
     background-color: lightgrey !important;
 }
+
+.default-sortable.rank-list-container {
+    border: 0px;
+    padding: 0px;
+    margin: 0px;
+}
+
+.default-sortable .rank-list-item {
+    padding: 0px;
+}
+
+.default-sortable .rank-list-item .form-group {
+    margin: 0px;
+}
+
+.default-sortable .rank-list-item .checkbox  {
+    margin: 0px;
+}
+
+.default-sortable .rank-list-item p  {
+    margin: 0px;
+}
+
+.task-row {
+    position: relative;
+    height: 50px; /* Set a fixed height for each row */
+    margin-top: 5px;
+    padding-top: 5px;
+}
