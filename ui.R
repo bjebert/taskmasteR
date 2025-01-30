@@ -9,17 +9,12 @@ breaks <- function(n) tagList(lapply(1:n, function(x) br()))
 
 ui <- fluidPage(
     shinyjs::useShinyjs(),
+    
     tags$style(
         HTML(readLines("style.css"))
     ),
     tags$script(
-        HTML("$(function(){ 
-                $(document).keyup(function(e) {
-                    if (e.code == 'Enter') {
-                        $('#createTask').click()
-                    }
-                });
-            })")
+        HTML(readLines("scripts.js"))
     ),
     
     gfonts::use_font("catamaran", "fonts/css/catamaran.css"),
@@ -47,6 +42,16 @@ ui <- fluidPage(
     absolutePanel(
         left = "665px", top = "5px", 
         h3(textOutput("dateTime"))
+    ),
+    
+    absolutePanel(
+        left = "937px", top = "20px",
+        actionButton("datePrev", label = NULL, icon = icon("angle-left")),
+    ),
+    
+    absolutePanel(
+        left = "977px", top = "20px",
+        actionButton("dateNext", label = NULL, icon = icon("angle-right")),
     ),
     
     absolutePanel(

@@ -77,7 +77,8 @@ get_prompts <- function() {
 }
 
 
-rv <- reactiveValues(task_mode = FALSE,
+rv <- reactiveValues(current_date = Sys.Date(),
+                     task_mode = FALSE,
                      task_timer_active = FALSE,
                      task_start_time = NULL,
                      task_duration_seconds = 0,
@@ -86,8 +87,6 @@ rv <- reactiveValues(task_mode = FALSE,
                      edit_id = NA,
                      motivational_text = NULL,
                      last_beep = Sys.time())
-
-rv[["tasks"]] <- read_tasks(sprintf("history/tasks_%s.csv", gsub("-", "_", Sys.Date())))
 
 statistics_dt <- fread("statistics.csv")
 statistics_dt[, Time := as.POSIXct(Time)]
@@ -218,13 +217,14 @@ get_tasks_ui <- function() {
         
         return(
             fluidRow(class = "task-row",
-                    absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", id), label = p_label, value = is_complete, width = "450px")),
-                    absolutePanel(left = "465px", actionButton(sprintf("sel%d", id), "", icon = icon("location-arrow"))),
-                    absolutePanel(left = "506px", actionButton(sprintf("atom%d", id), "", icon = icon("cubes"))),
-                    absolutePanel(left = "551px", actionButton(sprintf("edit%d", id), "", icon = icon("edit"))),
-                    absolutePanel(left = "594px", actionButton(sprintf("del%d", id), "", icon = icon("trash"))),
-                )
+                     absolutePanel(left = "2000px", sprintf("[%s]", id)),  # ID
+                     absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", id), label = p_label, value = is_complete, width = "450px")),
+                     absolutePanel(left = "465px", actionButton(sprintf("sel%d", id), "", icon = icon("location-arrow"))),
+                     absolutePanel(left = "506px", actionButton(sprintf("atom%d", id), "", icon = icon("cubes"))),
+                     absolutePanel(left = "551px", actionButton(sprintf("edit%d", id), "", icon = icon("edit"))),
+                     absolutePanel(left = "594px", actionButton(sprintf("del%d", id), "", icon = icon("trash"))),
             )
+        )
     }
     
     tasks_ui <- lapply(1:nrow(visible_tasks), function(i) {
@@ -250,7 +250,7 @@ get_tasks_ui <- function() {
     })
     
     rank_list(text = NULL,
-              input_id = "rank_list_basic", 
+              input_id = "taskSortableList", 
               labels = tasks_ui)
 }
 
@@ -507,11 +507,6 @@ create_task <- function(task_name, task_time_start, task_time_end, task_prerequi
 
 
 toggle_check_task <- function(i, chk_val, session) {
-    if(chk_val && difftime(Sys.time(), rv[["last_beep"]], units = "secs") > 0.2 &&
-       difftime(Sys.time(), launch_time, units = "secs") > 1) {
-        runjs("var audio = new Audio('ding.mp3'); audio.volume = 0.7; audio.play();")
-    }
-    
     tmp <- copy(rv[["tasks"]])
     idx <- tmp[IsVisible == T, which = T][i]
     
@@ -712,31 +707,29 @@ server <- function(input, output, session) {
     shinyjs::hide("cancelEdit")
     shinyjs::hide("taskStatusUi")
     
-    label_timer <- reactiveTimer(1000)
     output$dateTime <- renderText({
-        label_timer()
-        format(Sys.time(), format = "%A, %d %B %Y, %H:%M:%S")
+        format(rv[["current_date"]], format = "%A, %d %B %Y")
     })
     
-    observeEvent(label_timer(), {
-        # Check off any fixed tasks where the current time has passed TimeEnd
-        if(nrow(rv[["tasks"]]) == 0) {
-            return(NULL)
-        }
-        
-        w_complete <- rv[["tasks"]][IsFixed == TRUE & IsComplete == FALSE & TimeEnd <= format(Sys.time(), "%H:%M"), which = T]
-        
-        for(w in w_complete) {
-            toggle_check_task(w, TRUE, session)
-        }
+    observeEvent(input$datePrev, {
+        rv[["current_date"]] <- rv[["current_date"]] - 1
+    })
+    
+    observeEvent(input$dateNext, {
+        rv[["current_date"]] <- rv[["current_date"]] + 1
+    })
+    
+    observeEvent(rv[["current_date"]], {
+        rv[["tasks"]] <- read_tasks(sprintf("history/tasks_%s.csv", gsub("-", "_", rv[["current_date"]])))
     })
     
     output$taskUi <- renderUI({
         ui <- get_tasks_ui()
-        N <- length(ui)
         
-        if("children" %in% names(ui)) {  # Single absolutePanel with no tasks label
+        if("children" %in% names(ui)) {
             N <- 0
+        } else {
+            N <- length(ui[[1]][["children"]][[2]][["children"]][[1]])
         }
         
         if(N > length(chk_observers)) {
@@ -764,8 +757,17 @@ server <- function(input, output, session) {
             updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites", choices = rv[["tasks"]][IsVisible == T][["Name"]])
         }
         
-        fwrite(rv[["tasks"]], sprintf("history/tasks_%s.csv", gsub("-", "_", Sys.Date())))
+        fwrite(rv[["tasks"]], sprintf("history/tasks_%s.csv", gsub("-", "_", rv[["current_date"]])))
         fwrite(rv[["tasks"]][Recurrence != ""], "habits.csv")
+    })
+    
+    observeEvent(input$taskSortableList, {
+        if(length(input$taskSortableList) == 0) {
+            return()
+        }
+        
+        id <- as.numeric(stringr::str_extract(input$taskSortableList, pattern = "\\d+"))
+        rv[["tasks"]] <- rv[["tasks"]][id]
     })
     
     observeEvent(input$createTask, {
@@ -818,6 +820,16 @@ server <- function(input, output, session) {
             
             rv$task_start_time <- NULL
             updateActionButton(session, "toggleTaskTimer", icon = icon("play"))
+        }
+    })
+    
+    observeEvent(input$user_clicked, {  # Ding!
+        if(nchar(input$user_clicked) >= 3) {
+            if(substr(input$user_clicked, 1, 3) == "chk") {
+                if(!isolate(input[[input$user_clicked]])) {
+                    runjs("var audio = new Audio('ding.mp3'); audio.volume = 0.7; audio.play();")
+                }
+            }    
         }
     })
     
