@@ -19,6 +19,14 @@ read_tasks <- function(f) {
     }
     
     # Legacy interfacing ---
+    if(!("Id" %in% colnames(tasks_tmp))) {
+        tasks_tmp[, Id := sprintf("T%s", .I)]
+        
+        # Move Id to first column
+        w <- which(colnames(tasks_tmp) == "Id")
+        tasks_tmp <- tasks_tmp[, c(w, setdiff(1:ncol(tasks_tmp), w)), with = F]
+    }
+    
     if("Completions" %in% colnames(tasks_tmp)) {  
         tasks_tmp[, Completions := NULL]
     }
@@ -37,6 +45,10 @@ read_tasks <- function(f) {
     
     if(!("PlanEnd" %in% colnames(tasks_tmp))) {
         tasks_tmp[, PlanEnd := as.character(NA)]
+    }    
+    
+    if(!("Parent" %in% colnames(tasks_tmp))) {
+        tasks_tmp[, Parent := as.character(NA)]
     }
     
     # Convert format and filter ---
@@ -105,6 +117,7 @@ launch_time <- Sys.time()
 
 breaks <- function(n) tagList(lapply(1:n, function(x) br()))
 
+
 load_habits <- function() {
     tasks_tmp <- copy(rv[["tasks"]])
     hab_dt <- tasks_tmp[Recurrence != ""]
@@ -148,213 +161,116 @@ determine_task_label_colour <- function(time_start, time_end, prerequisites, is_
 }
 
 
+create_ui_row <- function(order_id, top_px, left_px, label, time_start, time_end, prerequisites, is_fixed, is_complete, is_active,
+                          plan_start, plan_end) {
+    
+    label_full <- copy(label)
+    label_colour <- determine_task_label_colour(time_start, time_end, prerequisites, is_fixed, is_complete, is_active)
+    
+    nchar_size_map <- c(`0` = 18, `40` = 17, `50` = 16, `60` = 14, `70` = 12)
+    label_length <- nchar(label) + nchar(paste(prerequisites, collapse = ", "))
+    
+    has_time <- (!(time_start %in% c("0:00", "00:00")) || time_end != "23:59") && time_start < time_end    
+    has_plan <- !is.na(plan_start) && !is.na(plan_end) && plan_start != "" && plan_end != "" &&
+        (!(plan_start %in% c("0:00", "00:00")) || plan_end != "23:59" && plan_start < plan_end) 
+    
+    if(has_time) {
+        complete_colour <- "palegreen"
+        inactive_colour <- "lightgray"
+        fixed_colour <- "lightblue"
+        
+        time_colour <- ifelse(is_fixed, fixed_colour, ifelse(is_complete, complete_colour, inactive_colour))
+        
+        if(!(is_fixed && has_plan)) {
+            label_full <- HTML(sprintf("%s <span style=color:%s><i>(%s - %s)</i></span>", label_full, time_colour, time_start, time_end))
+            label_length <- label_length + 15
+        }
+    }
+    
+    if(has_plan) {
+        complete_colour <- "palegreen"
+        plan_time_colour <- "purple"
+        
+        plan_colour <- ifelse(is_complete, complete_colour, plan_time_colour)
+        
+        label_full <- HTML(sprintf("<span style=color:%s>(%s - %s):</span> %s", plan_colour, plan_start, plan_end, label_full))
+        label_length <- label_length + 15
+    }
+    
+    w_sz <- max(which(label_length > as.numeric(names(nchar_size_map))))
+    font_size <- nchar_size_map[w_sz]
+    
+    if(all(!is.na(prerequisites)) && length(prerequisites)) {
+        prereq_joined <- paste(prerequisites, collapse = ", ")
+        
+        MAX_PREREQ_CHAR_LEN <- 75
+        
+        if((nchar(prereq_joined) + nchar(label_full)) > MAX_PREREQ_CHAR_LEN) {
+            prereq_joined <- sprintf("%s...", substr(prereq_joined, 1, MAX_PREREQ_CHAR_LEN - nchar(label_full)))
+        }
+        
+        label_full <- HTML(sprintf("%s <i>(Req: %s)</i>", label_full, prereq_joined))
+    }
+    
+    label_style <- sprintf('font-size: %spx; color: %s', font_size, label_colour)
+    
+    if(!is.na(is_active) && is_active) {
+        label_style <- sprintf('%s; font-weight: bold', label_style)
+    } else if(is_complete) {
+        label_style <- sprintf('%s; text-decoration: line-through', label_style)
+    }
+    
+    p_label <- tags$p(label_full, id = sprintf("chkLabel%d", order_id), style = label_style)
+    
+    return(
+        fluidRow(class = "task-row",
+                 absolutePanel(left = "2000px", sprintf("[%s]", order_id)),  # numeric ordered ID (separate to task ID)
+                 absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", order_id), label = p_label, value = is_complete, width = "450px")),
+                 absolutePanel(left = "465px", actionButton(sprintf("sel%d", order_id), "", icon = icon("location-arrow"))),
+                 absolutePanel(left = "506px", actionButton(sprintf("atom%d", order_id), "", icon = icon("cubes"))),
+                 absolutePanel(left = "551px", actionButton(sprintf("edit%d", order_id), "", icon = icon("edit"))),
+                 absolutePanel(left = "594px", actionButton(sprintf("del%d", order_id), "", icon = icon("trash"))),
+        )
+    )
+}
+
+
 get_tasks_ui <- function() {
-    visible_tasks <- rv[["tasks"]][IsVisible == TRUE]
+    visible_tasks <- copy(rv[["tasks"]][IsVisible == TRUE])
     if(nrow(visible_tasks) == 0) {
         return(absolutePanel("No tasks have been created yet..."))
     }
     
-    create_ui_row <- function(top, id, label, time_start, time_end, prerequisites, is_fixed, is_complete, is_active,
-                              plan_start, plan_end) {
-        
-        label_full <- copy(label)
-        label_colour <- determine_task_label_colour(time_start, time_end, prerequisites, is_fixed, is_complete, is_active)
-        
-        nchar_size_map <- c(`0` = 18, `40` = 17, `50` = 16, `60` = 14, `70` = 12)
-        label_length <- nchar(label) + nchar(paste(prerequisites, collapse = ", "))
-        
-        has_time <- (!(time_start %in% c("0:00", "00:00")) || time_end != "23:59") && time_start < time_end    
-        has_plan <- !is.na(plan_start) && !is.na(plan_end) && plan_start != "" && plan_end != "" &&
-            (!(plan_start %in% c("0:00", "00:00")) || plan_end != "23:59" && plan_start < plan_end) 
-        
-        if(has_time) {
-            complete_colour <- "palegreen"
-            inactive_colour <- "lightgray"
-            fixed_colour <- "lightblue"
-            
-            time_colour <- ifelse(is_fixed, fixed_colour, ifelse(is_complete, complete_colour, inactive_colour))
-            
-            if(!(is_fixed && has_plan)) {
-                label_full <- HTML(sprintf("%s <span style=color:%s><i>(%s - %s)</i></span>", label_full, time_colour, time_start, time_end))
-                label_length <- label_length + 15
-            }
-        }
-        
-        if(has_plan) {
-            complete_colour <- "palegreen"
-            plan_time_colour <- "purple"
-            
-            plan_colour <- ifelse(is_complete, complete_colour, plan_time_colour)
-            
-            label_full <- HTML(sprintf("<span style=color:%s>(%s - %s):</span> %s", plan_colour, plan_start, plan_end, label_full))
-            label_length <- label_length + 15
-        }
-        
-        w_sz <- max(which(label_length > as.numeric(names(nchar_size_map))))
-        font_size <- nchar_size_map[w_sz]
-        
-        if(all(!is.na(prerequisites)) && length(prerequisites)) {
-            prereq_joined <- paste(prerequisites, collapse = ", ")
-            
-            MAX_PREREQ_CHAR_LEN <- 75
-            
-            if((nchar(prereq_joined) + nchar(label_full)) > MAX_PREREQ_CHAR_LEN) {
-                prereq_joined <- sprintf("%s...", substr(prereq_joined, 1, MAX_PREREQ_CHAR_LEN - nchar(label_full)))
-            }
-            
-            label_full <- HTML(sprintf("%s <i>(Req: %s)</i>", label_full, prereq_joined))
-        }
-        
-        label_style <- sprintf('font-size: %spx; color: %s', font_size, label_colour)
-        
-        if(!is.na(is_active) && is_active) {
-            label_style <- sprintf('%s; font-weight: bold', label_style)
-        } else if(is_complete) {
-            label_style <- sprintf('%s; text-decoration: line-through', label_style)
-        }
-        
-        p_label <- tags$p(label_full, id = sprintf("chkLabel%d", id), style = label_style)
-        
-        return(
-            fluidRow(class = "task-row",
-                     absolutePanel(left = "2000px", sprintf("[%s]", id)),  # ID
-                     absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", id), label = p_label, value = is_complete, width = "450px")),
-                     absolutePanel(left = "465px", actionButton(sprintf("sel%d", id), "", icon = icon("location-arrow"))),
-                     absolutePanel(left = "506px", actionButton(sprintf("atom%d", id), "", icon = icon("cubes"))),
-                     absolutePanel(left = "551px", actionButton(sprintf("edit%d", id), "", icon = icon("edit"))),
-                     absolutePanel(left = "594px", actionButton(sprintf("del%d", id), "", icon = icon("trash"))),
-            )
-        )
-    }
+    root_tasks <- visible_tasks[!(Parent %in% Id)]
     
-    tasks_ui <- lapply(1:nrow(visible_tasks), function(i) {
-        active_status <- if(!any(visible_tasks[["IsActive"]])) NA else visible_tasks[["IsActive"]][i]
+    tasks_ui <- lapply(1:nrow(root_tasks), function(i) {
+        active_status <- if(!any(root_tasks[["IsActive"]])) NA else root_tasks[["IsActive"]][i]
         
-        if(!is.na(visible_tasks[["Prerequisites"]][i])) {
-            prerequisites <- strsplit(visible_tasks[["Prerequisites"]][i], ";")[[1]]
-            prerequisites <- prerequisites[!(prerequisites %in% visible_tasks[IsVisible == F | IsComplete == T, Name])]
+        if(!is.na(root_tasks[["Prerequisites"]][i])) {
+            prerequisites <- strsplit(root_tasks[["Prerequisites"]][i], ";")[[1]]
+            prerequisites <- prerequisites[!(prerequisites %in% root_tasks[IsVisible == F | IsComplete == T, Name])]
         } else {
             prerequisites <- NA
         }
         
-        create_ui_row(i*40 - 25, i, 
-                      visible_tasks[["Name"]][i], 
-                      visible_tasks[["TimeStart"]][i],
-                      visible_tasks[["TimeEnd"]][i],
+        create_ui_row(i, 
+                      i*40 - 25,
+                      0,
+                      root_tasks[["Name"]][i], 
+                      root_tasks[["TimeStart"]][i],
+                      root_tasks[["TimeEnd"]][i],
                       prerequisites,
-                      visible_tasks[["IsFixed"]][i],
-                      visible_tasks[["IsComplete"]][i],
+                      root_tasks[["IsFixed"]][i],
+                      root_tasks[["IsComplete"]][i],
                       active_status,
-                      visible_tasks[["PlanStart"]][i],
-                      visible_tasks[["PlanEnd"]][i])
+                      root_tasks[["PlanStart"]][i],
+                      root_tasks[["PlanEnd"]][i])
     })
     
     rank_list(text = NULL,
               input_id = "taskSortableList", 
               labels = tasks_ui)
 }
-
-
-# get_tasks_ui_old <- function() {
-#     visible_tasks <- rv[["tasks"]][IsVisible == TRUE]
-#     if(nrow(visible_tasks) == 0) {
-#         return(absolutePanel("No tasks have been created yet..."))
-#     }
-#     
-#     create_ui_row <- function(top, id, label, time_start, time_end, prerequisites, is_fixed, is_complete, is_active,
-#                               plan_start, plan_end) {
-#         
-#         label_full <- copy(label)
-#         label_colour <- determine_task_label_colour(time_start, time_end, prerequisites, is_fixed, is_complete, is_active)
-#         
-#         nchar_size_map <- c(`0` = 18, `40` = 17, `50` = 16, `60` = 14, `70` = 12)
-#         label_length <- nchar(label) + nchar(paste(prerequisites, collapse = ", "))
-# 
-#         has_time <- (!(time_start %in% c("0:00", "00:00")) || time_end != "23:59") && time_start < time_end    
-#         has_plan <- !is.na(plan_start) && !is.na(plan_end) && plan_start != "" && plan_end != "" &&
-#             (!(plan_start %in% c("0:00", "00:00")) || plan_end != "23:59" && plan_start < plan_end) 
-#            
-#         if(has_time) {
-#             complete_colour <- "palegreen"
-#             inactive_colour <- "lightgray"
-#             fixed_colour <- "lightblue"
-#             
-#             time_colour <- ifelse(is_fixed, fixed_colour, ifelse(is_complete, complete_colour, inactive_colour))
-#             
-#             if(!(is_fixed && has_plan)) {
-#                 label_full <- HTML(sprintf("%s <span style=color:%s><i>(%s - %s)</i></span>", label_full, time_colour, time_start, time_end))
-#                 label_length <- label_length + 15
-#             }
-#         }
-#         
-#         if(has_plan) {
-#             complete_colour <- "palegreen"
-#             plan_time_colour <- "purple"
-#             
-#             plan_colour <- ifelse(is_complete, complete_colour, plan_time_colour)
-#             
-#             label_full <- HTML(sprintf("<span style=color:%s>(%s - %s):</span> %s", plan_colour, plan_start, plan_end, label_full))
-#             label_length <- label_length + 15
-#         }
-#         
-#         w_sz <- max(which(label_length > as.numeric(names(nchar_size_map))))
-#         font_size <- nchar_size_map[w_sz]
-#         
-#         if(all(!is.na(prerequisites)) && length(prerequisites)) {
-#             prereq_joined <- paste(prerequisites, collapse = ", ")
-#             
-#             MAX_PREREQ_CHAR_LEN <- 75
-#             
-#             if((nchar(prereq_joined) + nchar(label_full)) > MAX_PREREQ_CHAR_LEN) {
-#                 prereq_joined <- sprintf("%s...", substr(prereq_joined, 1, MAX_PREREQ_CHAR_LEN - nchar(label_full)))
-#             }
-#             
-#             label_full <- HTML(sprintf("%s <i>(Req: %s)</i>", label_full, prereq_joined))
-#         }
-#         
-#         label_style <- sprintf('font-size: %spx; color: %s', font_size, label_colour)
-#         
-#         if(!is.na(is_active) && is_active) {
-#             label_style <- sprintf('%s; font-weight: bold', label_style)
-#         } else if(is_complete) {
-#             label_style <- sprintf('%s; text-decoration: line-through', label_style)
-#         }
-#         
-#         p_label <- tags$p(label_full, id = sprintf("chkLabel%d", id), style = label_style)
-#         
-#         fluidRow(
-#             absolutePanel(left = "20px", top = sprintf("%dpx", top), checkboxInput(sprintf("chk%d", id), label = p_label, value = is_complete, width = "450px")),
-#             absolutePanel(left = "465px", top = sprintf("%dpx", top), actionButton(sprintf("sel%d", id), "", icon = icon("location-arrow"))),
-#             absolutePanel(left = "506px", top = sprintf("%dpx", top), actionButton(sprintf("atom%d", id), "", icon = icon("cubes"))),
-#             absolutePanel(left = "551px", top = sprintf("%dpx", top), actionButton(sprintf("edit%d", id), "", icon = icon("edit"))),
-#             absolutePanel(left = "594px", top = sprintf("%dpx", top), actionButton(sprintf("del%d", id), "", icon = icon("trash"))),
-#         )
-#     }
-#     
-#     tasks_ui <- lapply(1:nrow(visible_tasks), function(i) {
-#         active_status <- if(!any(visible_tasks[["IsActive"]])) NA else visible_tasks[["IsActive"]][i]
-#         
-#         if(!is.na(visible_tasks[["Prerequisites"]][i])) {
-#             prerequisites <- strsplit(visible_tasks[["Prerequisites"]][i], ";")[[1]]
-#             prerequisites <- prerequisites[!(prerequisites %in% visible_tasks[IsVisible == F | IsComplete == T, Name])]
-#         } else {
-#             prerequisites <- NA
-#         }
-#         
-#         create_ui_row(i*40 - 25, i, 
-#                       visible_tasks[["Name"]][i], 
-#                       visible_tasks[["TimeStart"]][i],
-#                       visible_tasks[["TimeEnd"]][i],
-#                       prerequisites,
-#                       visible_tasks[["IsFixed"]][i],
-#                       visible_tasks[["IsComplete"]][i],
-#                       active_status,
-#                       visible_tasks[["PlanStart"]][i],
-#                       visible_tasks[["PlanEnd"]][i])
-#     })
-#     
-#     return(tasks_ui)
-# }
 
 
 task_status_ui <- function() {
@@ -469,8 +385,14 @@ get_task_statistics <- function(task_name) {
 }
 
 
-create_task <- function(task_name, task_time_start, task_time_end, task_prerequisites, task_recurrence, 
-                        task_likelihood, task_time_fixed, task_duration) {
+create_task_id <- function() {
+    i <- as.numeric(gsub("T", "", rv[["tasks"]][["Id"]]))
+    sprintf("T%d", setdiff(1:(max(i)+1), i)[1])
+}
+
+
+create_task <- function(task_name, task_time_start, task_time_end, task_prerequisites, task_parent,
+                        task_recurrence, task_likelihood, task_time_fixed, task_duration) {
     
     start_hhmm <- sprintf("%02d:%02d", hour(task_time_start), minute(task_time_start))
     end_hhmm <- sprintf("%02d:%02d", hour(task_time_end), minute(task_time_end))
@@ -489,11 +411,16 @@ create_task <- function(task_name, task_time_start, task_time_end, task_prerequi
                                              units = "mins"))
     }
     
-    task_dt <- data.table(Name = task_name, TimeStart = start_hhmm, TimeEnd = end_hhmm,
+    # Note: if multiple tasks have same name, this will only select the first one as the parent;
+    # may need to track original parent state if this is undesirable
+    parent_ids <- rv[["tasks"]][Name == task_parent][["Id"]]
+    parent_id <- if(length(parent_ids) > 0) parent_ids[1] else NA
+    
+    task_dt <- data.table(Id = create_task_id(), Name = task_name, TimeStart = start_hhmm, TimeEnd = end_hhmm,
                           Prerequisites = task_prerequisites, Recurrence = paste(task_recurrence, collapse = ";"), 
                           Likelihood = task_likelihood, IsComplete = FALSE, IsActive = FALSE,
                           IsVisible = TRUE, IsFixed = task_time_fixed, TaskDuration = task_duration,
-                          PlanStart = NA, PlanEnd = NA)
+                          PlanStart = NA, PlanEnd = NA, Parent = parent_id)
     
     if(rv[["edit_mode"]]) {
         rv[["tasks"]][IsVisible == TRUE][rv[["edit_id"]]] <<- task_dt
@@ -573,6 +500,11 @@ edit_task <- function(i) {
         updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites",
                           selected = prereq_split)
         
+        parent_name <- if(is.na(visible_tasks[["Parent"]][i])) NULL else visible_tasks[Id == visible_tasks[["Parent"]][i]][["Name"]][1]
+        
+        updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskParent",
+                          selected = parent_name)
+        
         task_recurrence <- if(is.na(visible_tasks[["Recurrence"]][i])) NULL else visible_tasks[["Recurrence"]][i]
         recurrence_split <- if(!is.null(task_recurrence)) strsplit(task_recurrence, ";")[[1]] else NULL
         
@@ -622,6 +554,7 @@ reset_task_inputs <- function() {
     updateTimeInput(session = getDefaultReactiveDomain(), inputId = "taskTimeEnd", value = as.POSIXlt(sprintf("%s 23:59:00", Sys.Date())))
     updateCheckboxInput(session = getDefaultReactiveDomain(), inputId = "taskTimeFixed", value = FALSE)
     updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites", selected = "")
+    updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskParent", selected = character(0))
     updateCheckboxGroupInput(session = getDefaultReactiveDomain(), inputId = "taskRecurrence", selected = numeric(0))
     updateNumericInputIcon(session = getDefaultReactiveDomain(), inputId = "taskLikelihood", value = 100)
     updateNumericInput(session = getDefaultReactiveDomain(), inputId = "taskRepetitions", value = 1)
@@ -741,7 +674,7 @@ server <- function(input, output, session) {
             del_observers <<- c(del_observers, lapply(i:N, function(i) observeEvent(input[[sprintf("del%d", i)]], delete_task(i))))
         }
         
-        return(ui) 
+        return(absolutePanel(width = "100%", ui))
     })
     
     output$taskStatusUi <- renderUI(task_status_ui())
@@ -753,8 +686,10 @@ server <- function(input, output, session) {
     observeEvent(rv[["tasks"]], {
         if(nrow(rv[["tasks"]]) == 0) {
             updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites", choices = "")
+            updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskParent", choices = "")
         } else {
             updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites", choices = rv[["tasks"]][IsVisible == T][["Name"]])
+            updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskParent", selected = character(0), choices = rv[["tasks"]][IsVisible == T][["Name"]])
         }
         
         fwrite(rv[["tasks"]], sprintf("history/tasks_%s.csv", gsub("-", "_", rv[["current_date"]])))
@@ -766,13 +701,14 @@ server <- function(input, output, session) {
             return()
         }
         
+        browser()
         id <- as.numeric(stringr::str_extract(input$taskSortableList, pattern = "\\d+"))
-        rv[["tasks"]] <- rv[["tasks"]][id]
+        # rv[["tasks"]] <- rv[["tasks"]][id]  # temporarily commented out while children are being sorted out
     })
     
     observeEvent(input$createTask, {
-        create_task(input$taskName, input$taskTimeStart, input$taskTimeEnd, input$taskPrerequisites, input$taskRecurrence, 
-                    input$taskLikelihood, input$taskTimeFixed, input$taskDuration)
+        create_task(input$taskName, input$taskTimeStart, input$taskTimeEnd, input$taskPrerequisites, input$taskParent, 
+                    input$taskRecurrence, input$taskLikelihood, input$taskTimeFixed, input$taskDuration)
         
         cancel_edit()
     })
@@ -851,18 +787,7 @@ server <- function(input, output, session) {
     })    
     
     observeEvent(input$loadHistorical, {
-        tmp <- tryCatch(expr = {
-            f2 <- fread(input[["loadHistorical"]][["datapath"]])
-            if(ncol(f2) == 10 && "Recurrence" %in% colnames(f2)) {
-                f2
-            } else {
-                NULL
-            }
-        }, error = function(x) NULL)
-        
-        if(!is.null(tmp)) {
-            rv[["tasks"]] <<- copy(tmp)
-        }
+        rv[["tasks"]] <- read_tasks(input$loadHistorical[["datapath"]])
     })
     
     
@@ -877,7 +802,7 @@ server <- function(input, output, session) {
     })
     
     
-    parse_gpt_tasks <- function(response, sample_amount = NULL) {
+    parse_gpt_tasks <- function(response, sample_amount = NULL, parent_id = NULL) {
         gpt_tasks <- tryCatch({
             new_tasks <- strsplit(response, "; ")[[1]]
             new_task_dt <- rbindlist(lapply(new_tasks, function(task) {
@@ -903,11 +828,11 @@ server <- function(input, output, session) {
                 task <- sub("\\.+$", "", task)  # Strip trailing periods
                 task <- sub("\\s+$", "", task)  # Strip trailing whitespace
                 
-                return(data.table(Name = task, TimeStart = start_hhmm, TimeEnd = end_hhmm,
+                return(data.table(Id = create_task_id(), Name = task, TimeStart = start_hhmm, TimeEnd = end_hhmm,
                                   Prerequisites = NA, Recurrence = "", 
                                   Likelihood = 100, IsComplete = FALSE, IsActive = FALSE,
                                   IsVisible = TRUE, IsFixed = FALSE, TaskDuration = 0,
-                                  PlanStart = NA, PlanEnd = NA))
+                                  PlanStart = NA, PlanEnd = NA, Parent = parent_id))
             }))
             
             new_task_dt <- new_task_dt[!is.na(Name) & Name != ""]
@@ -931,17 +856,17 @@ server <- function(input, output, session) {
         tmp <- copy(rv[["tasks"]])
         idx <- tmp[IsVisible == T, which = T][i]
         
+        task_id <- tmp[IsVisible == T][i][["Id"]]
         task_name <- tmp[IsVisible == T][i][["Name"]]
         
         chat_message <- sprintf("The task the user would like to atomise: %s.  The user's other tasks today are: %s", task_name,
                                 paste(rv$tasks[IsVisible == TRUE][["Name"]], collapse = "; "))
         
         response <- gpt_agent_atomise$chat(chat_message, echo = "none")
-        gpt_tasks <- parse_gpt_tasks(response)
+        gpt_tasks <- parse_gpt_tasks(response, parent_id = task_id)
         
         tryCatch({
             tmp <- rbind(tmp, gpt_tasks)
-            tmp <- tmp[-idx]
             rv[["tasks"]] <- copy(tmp)
         }, error = function(x) {
             print("Error binding GPT tasks")

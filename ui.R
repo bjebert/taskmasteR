@@ -35,7 +35,7 @@ ui <- fluidPage(
         width = "640px", top = "150px",
         wellPanel(style = "padding: 5px 0px",
             htmlOutput("taskUi"),
-            breaks(48)
+            breaks(44)
         )
     ),
     
@@ -64,11 +64,11 @@ ui <- fluidPage(
                 absolutePanel(top = "82px", left = "180px", checkboxInput("taskTimeFixed", value = FALSE, label = "Fixed Time")),
                 timeInput("taskTimeEnd", seconds = FALSE, label = "Time Restriction (End)", value = "23:59:59"),
                 selectInput("taskPrerequisites", label = "Prerequisites", choices = c(), multiple = TRUE, width = "85%"),
+                selectInput("taskParent", label = "Parent", choices = c(), multiple = FALSE, width = "85%"),
                 checkboxGroupInput("taskRecurrence", label = "Recurrence", choiceNames = c("M", "T", "W", "T", "F", "S", "S"), choiceValues = 1:7, inline = T),
                 numericInputIcon("taskLikelihood", label = "Likelihood", value = 100, 
-                                 min = 0, max = 100,
-                                 width = "30%", icon = list(NULL, icon("percent")), size = "sm"),
-                absolutePanel(top = "376px", left = "140px", width = "100px", numericInput("taskDuration", label = "Duration", value = NA, min = 0, max = 60*60)),
+                                 min = 0, max = 100, width = "30%", icon = list(NULL, icon("percent")), size = "sm"),
+                absolutePanel(top = "446px", left = "140px", width = "100px", numericInput("taskDuration", label = "Duration", value = NA, min = 0, max = 60*60)),
                 actionButton("createTask", label = "Create Task"),
                 actionButton("cancelEdit", label = "Cancel")
             )
@@ -76,71 +76,71 @@ ui <- fluidPage(
     ),
     
     absolutePanel(
-        left = "665px", top = "577px",  
+        left = "665px", top = "647px",  
         actionButton("loadHabits", label = strong("Load Habits"), width = "114px"),
     ),
     
     absolutePanel(
-        left = "784px", top = "577px", 
+        left = "784px", top = "647px", 
         actionButton("clearHabits", label = strong("Clear Habits"), width = "114px"),
     ),    
     
     absolutePanel(
-        left = "903px", top = "577px", 
+        left = "903px", top = "647px", 
         actionButton("clearTasks", label = strong("Clear Tasks"), width = "112px"),
     ),
     
     absolutePanel(
-        left = "665px", top = "596px", 
+        left = "665px", top = "666px", 
         fileInput("loadHistorical", label = "", width = "350px", buttonLabel = "Load Historical...")
     ),
     
     absolutePanel(
-        left = "665px", top = "656px", 
+        left = "665px", top = "726px", 
         actionButton("gptEnhance", label = "Enhance", width = "114px", icon = icon("tornado")),
     ),
     
     absolutePanel(
-        left = "784px", top = "656px", 
+        left = "784px", top = "726px", 
         selectInput("gptVersion", label = NULL, width = "231px", selected = "chatgpt-4o-latest",
                     choices = c("gpt-4o-mini", "chatgpt-4o-latest"))
     ),
     
     absolutePanel(
-        left = "665px", top = "696px", 
+        left = "665px", top = "766px", 
         textAreaInput("gptEnhanceContext", label = NULL, placeholder = "Context", width = "231px",
                       rows = 4)
     ),
     
     absolutePanel(
-        left = "901px", top = "696px", 
+        left = "901px", top = "766px", 
         selectInput("gptEnhanceSize", label = NULL, width = "114px", choices = c("tiny", "normal", "big", "huge", "absurd"),
                     selected = "normal"),
     ),
     
     absolutePanel(
-        left = "901px", top = "736px", 
+        left = "901px", top = "806px", 
         numericInput("gptEnhanceAmount", label = NULL, value = 3, min = 1, max = 10, width = "54px")
     ),
     
     absolutePanel(
-        left = "665px", top = "796px",
+        left = "665px", top = "866px",
         actionButton("gptPlanDay", label = strong("Plan Day"), width = "114px", icon = icon("calendar-plus")),
     ),   
     
     absolutePanel(
-        left = "784px", top = "796px",
+        left = "784px", top = "866px",
         actionButton("gptClearPlan", label = "Clear Plan", width = "114px"),
     ),
     
     absolutePanel(
-        left = "665px", top = "836px", 
+        left = "665px", top = "906px", 
         absolutePanel(top = "0px", left = "0px", div(style = "color: white", 
                                                      checkboxInput(inputId = "isGptMotivational", value = FALSE, label = "Motivation")))
     ),
     
     absolutePanel(
-        left = "665px", top = "876px", width = "350px",
+        left = "665px", top = "946px", width = "350px",
         uiOutput("gptWellPanel")
     )
 )
