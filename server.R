@@ -12,10 +12,11 @@ read_tasks <- function(f) {
     if(file.exists(f)) {
         tasks_tmp <- fread(f)
     } else {
-        tasks_tmp <- fread("habits.csv")
-        tasks_tmp[, IsVisible := FALSE]
-        tasks_tmp[, IsComplete := FALSE]
-        tasks_tmp[, IsActive := FALSE]
+        tasks_tmp <- data.table(Id = character(0), Name = character(0), TimeStart = character(0), 
+                                TimeEnd = character(0), Prerequisites = character(0), Recurrence = character(0), 
+                                Likelihood = integer(0), IsComplete = logical(0), IsActive = logical(0), 
+                                IsVisible = logical(0), IsFixed = logical(0), TaskDuration = integer(0), 
+                                Parent = logical(0), PlanStart = character(0), PlanEnd = character(0))
     }
     
     # Legacy interfacing ---
@@ -70,22 +71,24 @@ order_tasks <- function(tasks) {
 
 
 get_prompts <- function() {
-    prompt_motivation <- readLines("promptMotivation")
-    prompt_enhance <- readLines("promptEnhance")
-    prompt_atomise <- readLines("promptAtomise")
-    prompt_estimate <- readLines("promptEstimate")
-    prompt_plan <- readLines("promptPlan")
+    prompt_motivation <- readLines("prompts/promptMotivation")
+    prompt_enhance <- readLines("prompts/promptEnhance")
+    prompt_atomise <- readLines("prompts/promptAtomise")
+    prompt_estimate <- readLines("prompts/promptEstimate")
+    prompt_plan <- readLines("prompts/promptPlan")
+    prompt_plan_ordered <- readLines("prompts/promptPlanOrdered")
     
-    if(file.exists("promptPersonal")) {
-        prompt_motivation <- c(prompt_motivation, readLines("promptPersonal"))
-        prompt_enhance <- c(prompt_enhance, readLines("promptPersonal"))
+    if(file.exists("prompts/promptPersonal")) {
+        prompt_motivation <- c(prompt_motivation, readLines("prompts/promptPersonal"))
+        prompt_enhance <- c(prompt_enhance, readLines("prompts/promptPersonal"))
     }
     
     return(list("motivation" = prompt_motivation,
                 "enhance" = prompt_enhance,
                 "atomise" = prompt_atomise,
                 "estimate" = prompt_estimate,
-                "plan" = prompt_plan))
+                "plan" = prompt_plan,
+                "plan_ordered" = prompt_plan_ordered))
 }
 
 
@@ -116,18 +119,6 @@ launch_time <- Sys.time()
 # Helpers -----------------------------------------------------------------
 
 breaks <- function(n) tagList(lapply(1:n, function(x) br()))
-
-
-load_habits <- function() {
-    tasks_tmp <- copy(rv[["tasks"]])
-    hab_dt <- tasks_tmp[Recurrence != ""]
-    tasks_tmp[Recurrence != "", IsVisible := Likelihood >= runif(nrow(hab_dt), min = 0, max = 100)]
-    tasks_tmp[Recurrence != "", IsVisible := IsVisible & sapply(strsplit(as.character(hab_dt[["Recurrence"]]), ";"), function(x) (wday(Sys.Date()) - 1) %in% as.numeric(x))]
-    tasks_tmp[Recurrence != "", IsComplete := FALSE]
-    tasks_tmp[IsComplete == TRUE, IsActive := FALSE]
-    
-    rv[["tasks"]] <<- copy(tasks_tmp)
-}
 
 
 determine_task_label_colour <- function(time_start, time_end, prerequisites, is_fixed, is_complete, is_active) {
@@ -225,11 +216,11 @@ create_ui_row <- function(order_id, top_px, left_px, label, time_start, time_end
     return(
         fluidRow(class = "task-row",
                  absolutePanel(left = "2000px", sprintf("[%s]", order_id)),  # numeric ordered ID (separate to task ID)
-                 absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", order_id), label = p_label, value = is_complete, width = "450px")),
-                 absolutePanel(left = "465px", actionButton(sprintf("sel%d", order_id), "", icon = icon("location-arrow"))),
-                 absolutePanel(left = "506px", actionButton(sprintf("atom%d", order_id), "", icon = icon("cubes"))),
-                 absolutePanel(left = "551px", actionButton(sprintf("edit%d", order_id), "", icon = icon("edit"))),
-                 absolutePanel(left = "594px", actionButton(sprintf("del%d", order_id), "", icon = icon("trash"))),
+                 absolutePanel(left = "20px", checkboxInput(sprintf("chk%d", order_id), label = p_label, value = is_complete, width = "440px")),
+                 absolutePanel(left = "452px", actionButton(sprintf("sel%d", order_id), "", icon = icon("location-arrow"))),
+                 absolutePanel(left = "493px", actionButton(sprintf("atom%d", order_id), "", icon = icon("cubes"))),
+                 absolutePanel(left = "538px", actionButton(sprintf("edit%d", order_id), "", icon = icon("edit"))),
+                 absolutePanel(left = "581px", actionButton(sprintf("del%d", order_id), "", icon = icon("trash"))),
         )
     )
 }
@@ -238,7 +229,8 @@ create_ui_row <- function(order_id, top_px, left_px, label, time_start, time_end
 get_tasks_ui <- function() {
     visible_tasks <- copy(rv[["tasks"]][IsVisible == TRUE])
     if(nrow(visible_tasks) == 0) {
-        return(absolutePanel("No tasks have been created yet..."))
+        return(tagList(list(absolutePanel(left = "10px", top = "10px", width = "80%", "No tasks have been created yet..."),
+                            breaks(2))))
     }
     
     root_tasks <- visible_tasks[!(Parent %in% Id)]
@@ -248,6 +240,7 @@ get_tasks_ui <- function() {
         
         if(!is.na(root_tasks[["Prerequisites"]][i])) {
             prerequisites <- strsplit(root_tasks[["Prerequisites"]][i], ";")[[1]]
+            prerequisites <- id2task(rv[["tasks"]], prerequisites)
             prerequisites <- prerequisites[!(prerequisites %in% root_tasks[IsVisible == F | IsComplete == T, Name])]
         } else {
             prerequisites <- NA
@@ -387,7 +380,22 @@ get_task_statistics <- function(task_name) {
 
 create_task_id <- function() {
     i <- as.numeric(gsub("T", "", rv[["tasks"]][["Id"]]))
-    sprintf("T%d", setdiff(1:(max(i)+1), i)[1])
+    
+    if(length(i) == 0) {
+        return("T1")
+    } else {
+        return(sprintf("T%d", setdiff(1:(max(i)+1), i)[1]))
+    }
+}
+
+
+id2task <- function(tasks_dt, ids) {
+    sapply(ids, function(x) tasks_dt[Id == x][1][["Name"]])
+}
+
+
+task2id <- function(tasks_dt, tasks) {
+    sapply(tasks, function(x) tasks_dt[Name == x][1][["Id"]])
 }
 
 
@@ -400,7 +408,8 @@ create_task <- function(task_name, task_time_start, task_time_end, task_prerequi
     if(is.null(task_prerequisites)) {
         task_prerequisites <- ""
     } else {
-        task_prerequisites <- paste(task_prerequisites, collapse = ";")
+        task_prerequisites <- paste(id2names(rv[["tasks"]], task_prerequisites), collapse = ";")
+        # task_prerequisites <- paste(task_prerequisites, collapse = ";")
     }
     
     task_duration <- if(is.na(task_duration)) 0 else task_duration
@@ -463,15 +472,13 @@ toggle_check_task <- function(i, chk_val, session) {
             session = session,
             type = "message",
         )
+        
+        tmp[idx, IsActive := FALSE]
+        exit_task_mode()
     }
     
     tmp[idx, IsComplete := chk_val]
-    tmp[idx, IsActive := FALSE]
     rv[["tasks"]] <<- copy(tmp)
-    
-    if(!chk_val) {
-        exit_task_mode()
-    }
 }
 
 
@@ -498,7 +505,7 @@ edit_task <- function(i) {
         prereq_split <- if(!is.null(task_prerequisites)) strsplit(task_prerequisites, ";")[[1]] else NULL
         
         updateSelectInput(session = getDefaultReactiveDomain(), inputId = "taskPrerequisites",
-                          selected = prereq_split)
+                          selected = as.character(id2task(rv[["tasks"]], prereq_split)))
         
         parent_name <- if(is.na(visible_tasks[["Parent"]][i])) NULL else visible_tasks[Id == visible_tasks[["Parent"]][i]][["Name"]][1]
         
@@ -580,6 +587,8 @@ enter_task_mode <- function() {
     rv$task_duration_seconds <- 0
     rv$task_timer <- reactiveTimer(1000)
     
+    update_task_motivation()
+    
     shinyjs::hide(id = "getTask")
     shinyjs::show(id = "taskStatusUi")
 }
@@ -595,6 +604,35 @@ exit_task_mode <- function() {
     
     shinyjs::show(id = "getTask")
     shinyjs::hide(id = "taskStatusUi")
+}
+
+
+update_task_motivation <- function() {
+    if(!rv[["task_mode"]] || !getDefaultReactiveDomain()$input$isGptMotivational) {
+        rv[["motivational_text"]] <- ""
+        return(NULL)
+    }
+    
+    # Generate a GPT motivational output for the current task
+    current_task <- rv$tasks[IsActive == TRUE]
+    other_tasks <- paste(rv$tasks[IsActive == FALSE & IsVisible == TRUE & IsComplete == FALSE][["Name"]], collapse = "; ")
+    
+    visible_tasks <- rv$tasks[IsVisible == TRUE]
+    
+    if(nrow(current_task) == 0) {
+        rv[["motivational_text"]] <- ""
+        return(NULL)
+    }
+    
+    chat_message <- sprintf("Current time is %s.  The current task is: %s.  The user's other tasks today are: %s.  The user has completed %d/%d tasks today.",
+                            format(Sys.time(), "%A %H:%M:%S"),
+                            current_task[["Name"]],
+                            other_tasks,
+                            visible_tasks[, sum(IsComplete)],
+                            nrow(visible_tasks))
+    
+    response <- gpt_agent_motivation$chat(chat_message, echo = "none")
+    rv[["motivational_text"]] <- response
 }
 
 
@@ -674,7 +712,8 @@ server <- function(input, output, session) {
             del_observers <<- c(del_observers, lapply(i:N, function(i) observeEvent(input[[sprintf("del%d", i)]], delete_task(i))))
         }
         
-        return(absolutePanel(width = "100%", ui))
+        return(fluidRow(ui))
+        # return(fluidRow(absolutePanel(width = "100%", ui)))
     })
     
     output$taskStatusUi <- renderUI(task_status_ui())
@@ -693,7 +732,6 @@ server <- function(input, output, session) {
         }
         
         fwrite(rv[["tasks"]], sprintf("history/tasks_%s.csv", gsub("-", "_", rv[["current_date"]])))
-        fwrite(rv[["tasks"]][Recurrence != ""], "habits.csv")
     })
     
     observeEvent(input$taskSortableList, {
@@ -701,9 +739,8 @@ server <- function(input, output, session) {
             return()
         }
         
-        browser()
         id <- as.numeric(stringr::str_extract(input$taskSortableList, pattern = "\\d+"))
-        # rv[["tasks"]] <- rv[["tasks"]][id]  # temporarily commented out while children are being sorted out
+        rv[["tasks"]] <- rv[["tasks"]][id]  # temporarily commented out while children are being sorted out
     })
     
     observeEvent(input$createTask, {
@@ -771,16 +808,6 @@ server <- function(input, output, session) {
     
     # Right sidebar -----------------------------------------------------------
     
-    observeEvent(input$loadHabits, {
-        rv[["tasks"]] <<- load_habits()
-    })
-    
-    observeEvent(input$clearHabits, {
-        tmp <- copy(rv[["tasks"]])
-        tmp[Recurrence != "", IsVisible := FALSE]
-        rv[["tasks"]] <<- copy(tmp)
-    })
-    
     observeEvent(input$clearTasks, {
         rv[["tasks"]] <<- rv[["tasks"]][Recurrence != ""]
         rv[["tasks"]][, IsVisible := FALSE]
@@ -799,10 +826,11 @@ server <- function(input, output, session) {
         gpt_agent_atomise <<- ellmer::chat_openai(model = input$gptVersion, system_prompt = prompts[["atomise"]])
         gpt_agent_estimate <<- ellmer::chat_openai(model = input$gptVersion, system_prompt = prompts[["estimate"]])
         gpt_agent_plan <<- ellmer::chat_openai(model = input$gptVersion, system_prompt = prompts[["plan"]])
+        gpt_agent_plan_ordered <<- ellmer::chat_openai(model = input$gptVersion, system_prompt = prompts[["plan_ordered"]])
     })
     
     
-    parse_gpt_tasks <- function(response, sample_amount = NULL, parent_id = NULL) {
+    parse_gpt_tasks <- function(response, sample_amount = NULL, parent_id = NA) {
         gpt_tasks <- tryCatch({
             new_tasks <- strsplit(response, "; ")[[1]]
             new_task_dt <- rbindlist(lapply(new_tasks, function(task) {
@@ -869,6 +897,7 @@ server <- function(input, output, session) {
             tmp <- rbind(tmp, gpt_tasks)
             rv[["tasks"]] <- copy(tmp)
         }, error = function(x) {
+            browser()
             print("Error binding GPT tasks")
             return(NULL)
         })
@@ -898,6 +927,7 @@ server <- function(input, output, session) {
         tryCatch({
             rv[["tasks"]] <- rbind(rv[["tasks"]], gpt_tasks)
         }, error = function(x) {
+            browser()
             print("Error binding GPT tasks")
             return(NULL)
         })
@@ -908,13 +938,13 @@ server <- function(input, output, session) {
     
     get_tasks_with_fixed_times <- function(tasks) {
         tasks_durations <- tasks[, sprintf("%s%s", Name, ifelse(IsFixed, sprintf(" (%s - %s)", TimeStart, TimeEnd), ""))]
-        paste(sample(tasks_durations), collapse = "; ")
+        paste(tasks_durations, collapse = "; ")
     }
     
     get_tasks_with_times_and_durations <- function(tasks) {
         tasks_durations <- tasks[, sprintf("%s%s [%s minutes]", Name, ifelse(!(TimeStart %in% c("0:00", "00:00")) | TimeEnd != "23:59", sprintf(" (%s - %s)", TimeStart, TimeEnd), ""),
                                            TaskDuration)]
-        paste(sample(tasks_durations), collapse = "; ")
+        paste(tasks_durations, collapse = "; ")
     }
     
     parse_durations <- function(response) {
@@ -929,32 +959,37 @@ server <- function(input, output, session) {
         plan_times <- gsub("\\{|\\}", "", stringr::str_extract(plan_split, "\\{.*\\}"))
         plan_list <- strsplit(plan_times, "-")
         
-        plan_dt <- data.table(Name = stringr::str_trim(sapply(strsplit(plan_split, "\\{"), function(x) x[1])),
+        plan_dt <- data.table(NameUpper = toupper(stringr::str_trim(sapply(strsplit(plan_split, "\\{"), function(x) x[1]))),
                               PlanStart = sapply(plan_list, function(x) x[1]),
                               PlanEnd = sapply(plan_list, function(x) x[2]))
         
-        plan_dt[, I := 1:.N, by = Name]
+        plan_dt[, I := 1:.N, by = NameUpper]
         tasks_dt[, I := 1:.N, by = Name]
         
-        return(merge(tasks_dt[, -c("PlanStart", "PlanEnd")], plan_dt, by = c("Name", "I"), all.x = T, sort = F)[, -"I"])
+        tasks_dt[, NameUpper := toupper(Name)]
+        
+        merge_dt <- merge(tasks_dt[, -c("PlanStart", "PlanEnd")], plan_dt, by = c("NameUpper", "I"), all.x = T, sort = F)[, -"I"]
+        return(merge_dt[, -"NameUpper"])
     }
     
     observeEvent(input$gptPlanDay, {
         # Estimate duration ---
         
-        w_est <- rv$tasks[IsVisible & !IsComplete & !IsFixed & TaskDuration == 0, which = T]
+        w_est <- rv$tasks[IsVisible & !IsComplete & !IsFixed & (is.na(TaskDuration) | TaskDuration == 0), which = T]
         
-        est_message <- sprintf("The user's tasks today are: %s",
-                               get_tasks_with_fixed_times(rv$tasks[w_est]))
-        
-        response <- gpt_agent_estimate$chat(est_message, echo = "none")
-        durations <- tryCatch(parse_durations(response),
-                              error = function(x) {
-                                  print(x)
-                                  return(rep(NA, length(w_plan)))
-                              })
-        
-        rv$tasks[w_est, TaskDuration := durations]
+        if(length(w_est) > 0) {
+            est_message <- sprintf("The user's tasks today are: %s",
+                                   get_tasks_with_fixed_times(rv$tasks[w_est]))
+            
+            response <- gpt_agent_estimate$chat(est_message, echo = "none")
+            durations <- tryCatch(parse_durations(response),
+                                  error = function(x) {
+                                      print(x)
+                                      return(rep(NA, length(w_plan)))
+                                  })
+            
+            rv$tasks[w_est, TaskDuration := durations]
+        }
         
         # Create plan ---
         
@@ -963,14 +998,23 @@ server <- function(input, output, session) {
         plan_message <- sprintf("The current time is: %s.  The user's tasks today are: %s",
                                 format(Sys.time(), "%A %H:%M:%S"),
                                 get_tasks_with_times_and_durations(rv$tasks[w_plan]))
-        response <- gpt_agent_plan$chat(plan_message, echo = "none")
+        
+        agent <- if(input$gptPlanIsOrdered) gpt_agent_plan_ordered else gpt_agent_plan
+        response <- agent$chat(plan_message, echo = "none")
         
         tasks_dt <- parse_plan(response, rv$tasks[w_plan])
-        tmp <- copy(rv$tasks)
         
         fail_counter <- 0
         while(nrow(tasks_dt[is.na(PlanEnd)]) > 0 && fail_counter < 3) {
-            print(sprintf('Plan failed: %d', fail_counter + 1))
+            fail_message <- sprintf('Plan failed: %d (%s)', fail_counter + 1, paste(tasks_dt[is.na(PlanEnd), Name], collapse = ";"))
+            print(fail_message)
+            
+            showNotification(
+                fail_message,
+                duration = 5,
+                session = getDefaultReactiveDomain(),
+                type = "error",
+            )
             
             w_plan2 <- tasks_dt[is.na(PlanEnd), which = T]
             
@@ -981,14 +1025,14 @@ server <- function(input, output, session) {
                                     get_tasks_with_times_and_durations(tasks_dt[w_plan2]),
                                     paste(existing_plan, collapse = "; "))
             
-            response <- gpt_agent_plan$chat(plan_message, echo = "none")
+            response <- agent$chat(plan_message, echo = "none")
             
             tasks_dt <- parse_plan(response, rv$tasks[w_plan])
-            tmp <- copy(rv$tasks)
             
             fail_counter <- fail_counter + 1
         }
         
+        tmp <- copy(rv$tasks)
         tmp[, c("PlanStart", "PlanEnd") := NULL]
         tmp[, PlanStart := ""]
         tmp[, PlanEnd := ""]
@@ -1021,32 +1065,8 @@ server <- function(input, output, session) {
         )
     })
     
-    observeEvent(c(rv[["task_mode"]], rv[["tasks"]], input$isGptMotivational), {
-        if(!rv[["task_mode"]] || !input$isGptMotivational) {
-            rv[["motivational_text"]] <- ""
-            return(NULL)
-        }
-        
-        # Generate a GPT motivational output for the current task
-        current_task <- rv$tasks[IsActive == TRUE]
-        other_tasks <- paste(rv$tasks[IsActive == FALSE & IsVisible == TRUE & IsComplete == FALSE][["Name"]], collapse = "; ")
-        
-        visible_tasks <- rv$tasks[IsVisible == TRUE]
-        
-        if(nrow(current_task) == 0) {
-            rv[["motivational_text"]] <- ""
-            return(NULL)
-        }
-        
-        chat_message <- sprintf("Current time is %s.  The current task is: %s.  The user's other tasks today are: %s.  The user has completed %d/%d tasks today.",
-                                format(Sys.time(), "%A %H:%M:%S"),
-                                current_task[["Name"]],
-                                other_tasks,
-                                visible_tasks[, sum(IsComplete)],
-                                nrow(visible_tasks))
-        
-        response <- gpt_agent_motivation$chat(chat_message, echo = "none")
-        rv[["motivational_text"]] <- response
+    observeEvent(input$isGptMotivational, {
+        update_task_motivation()
     })
     
     output$gptOutput <- renderText(rv$motivational_text)

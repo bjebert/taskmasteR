@@ -49,4 +49,5 @@ vignettes/*.pdf
 *.rds
 *.csv
 
-promptPersonal
+*promptPersonal
+prompts/promptPersonal

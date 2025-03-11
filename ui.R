@@ -33,9 +33,8 @@ ui <- fluidPage(
     
     absolutePanel(
         width = "640px", top = "150px",
-        wellPanel(style = "padding: 5px 0px",
+        wellPanel(style = "padding: 5px 15px; overflow-y: scroll; max-height: 925px;",
             htmlOutput("taskUi"),
-            breaks(44)
         )
     ),
     
@@ -76,23 +75,13 @@ ui <- fluidPage(
     ),
     
     absolutePanel(
-        left = "665px", top = "647px",  
-        actionButton("loadHabits", label = strong("Load Habits"), width = "114px"),
-    ),
-    
-    absolutePanel(
-        left = "784px", top = "647px", 
-        actionButton("clearHabits", label = strong("Clear Habits"), width = "114px"),
-    ),    
-    
-    absolutePanel(
-        left = "903px", top = "647px", 
-        actionButton("clearTasks", label = strong("Clear Tasks"), width = "112px"),
-    ),
-    
-    absolutePanel(
-        left = "665px", top = "666px", 
+        left = "665px", top = "626px", 
         fileInput("loadHistorical", label = "", width = "350px", buttonLabel = "Load Historical...")
+    ),
+    
+    absolutePanel(
+        left = "665px", top = "686px", 
+        actionButton("clearTasks", label = strong("Clear Tasks"), width = "112px"),
     ),
     
     absolutePanel(
@@ -131,6 +120,11 @@ ui <- fluidPage(
     absolutePanel(
         left = "784px", top = "866px",
         actionButton("gptClearPlan", label = "Clear Plan", width = "114px"),
+    ),    
+    
+    absolutePanel(
+        left = "908px", top = "866px",
+        div(style = "color: white", checkboxInput("gptPlanIsOrdered", value = FALSE, label = "Keep Order")),
     ),
     
     absolutePanel(
