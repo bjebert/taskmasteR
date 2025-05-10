@@ -12,4 +12,18 @@ $(document).on('click', 'input', function () {
 });
 
 
+/*$(document).ready(function(){
+    resizePanel();
+    $(window).resize(function(){
+        resizePanel();
+    });
+});
+
+
+function resizePanel() {
+    let h = $(window).height() * 0.9;  // or whatever percentage you want
+    document.getElementById("taskUiPanel").style.maxHeight = h + "px";
+}*/
+
+
 

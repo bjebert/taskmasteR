@@ -49,6 +49,12 @@ p {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
+#taskUiPanel {
+    padding: 5px 15px;
+    overflow-y: scroll;
+    max-height: 925px;
+}
+
 #getTask {
     background-color: #F5FFFA;
     border: 0px;

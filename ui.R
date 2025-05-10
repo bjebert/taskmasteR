@@ -32,6 +32,7 @@ ui <- fluidPage(
     ),
     
     absolutePanel(
+        # id = "taskUiPanel",
         width = "640px", top = "150px",
         wellPanel(style = "padding: 5px 15px; overflow-y: scroll; max-height: 925px;",
             htmlOutput("taskUi"),
@@ -123,7 +124,12 @@ ui <- fluidPage(
     ),    
     
     absolutePanel(
-        left = "908px", top = "866px",
+        left = "908px", top = "851px",
+        div(style = "color: white", checkboxInput("gptPlanIsContiguous", value = FALSE, label = "Contiguous")),
+    ),
+    
+    absolutePanel(
+        left = "908px", top = "871px",
         div(style = "color: white", checkboxInput("gptPlanIsOrdered", value = FALSE, label = "Keep Order")),
     ),
     
